@@ -10,6 +10,10 @@
     header {
         Content-Security-Policy "frame-ancestors 'self' {$XERP_FRAME_ANCESTORS}; connect-src 'self' blob: data:; img-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'"
         Referrer-Policy "no-referrer"
+        # Pages and unversioned files revalidate; versioned assets override
+        # this below. A cached asset keeps the headers it came with, so a
+        # change to these headers needs a new HASH build arg (new asset path).
+        Cache-Control "no-cache"
         X-Content-Type-Options "nosniff"
         -Server
     }
