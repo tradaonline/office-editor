@@ -43,7 +43,8 @@ ENV NEXT_PUBLIC_XERP_PARENT_ORIGINS=${XERP_PARENT_ORIGINS}
 WORKDIR /app
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# XERP: pinned; newer pnpm turns the ignored build scripts into an error.
+RUN corepack enable && corepack prepare pnpm@10.17.1 --activate
 
 # Copy dependency manifests first for better layer caching.
 COPY package.json pnpm-lock.yaml ./
