@@ -159,6 +159,10 @@ export class EditorServer {
     return this.user;
   }
 
+  setUser(user: User) {
+    this.user = { ...user };
+  }
+
   private async loadDocument(
     buffer: ArrayBuffer | (() => Promise<ArrayBuffer>),
     fileType: string,
@@ -422,6 +426,9 @@ export class EditorServer {
           console.error("Conversion failed");
           // TODO: error message
           return { status: "error" };
+        }
+        if (this.options.onExport && (await this.options.onExport(new Uint8Array(output), cmd.title))) {
+          return { status: "ok" };
         }
         const blob = new Blob([new Uint8Array(output)]);
         const url = URL.createObjectURL(blob);

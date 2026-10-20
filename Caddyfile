@@ -1,5 +1,18 @@
+# XERP: the editor site. Only /xerp (the embed) and the static assets it needs
+# are served; the upstream public pages (home, /editor?url=…, templates) are not.
+# XERP_FRAME_ANCESTORS: space-separated origins allowed to frame /xerp.
 :80 {
     root * /srv
+
+    @upstream_pages path / /index.html /editor /editor.html /editor/* /template /template.html /template/* /settings /settings.html /settings/* /about /about.html /about/*
+    respond @upstream_pages 404
+
+    header {
+        Content-Security-Policy "frame-ancestors {$XERP_FRAME_ANCESTORS:'none'}; connect-src 'self' blob: data:; img-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'"
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
 
     # Serve static files; return a genuine 404 if the file doesn't exist
     # (do NOT fall back to index.html — Next.js static export has a real
@@ -35,4 +48,11 @@
     }
     header @x2t_suffix Content-Encoding br
     header @x2t_suffix Cache-Control "public, max-age=31556952, immutable"
+}
+
+# XERP P0: test harness playing the XERP parent page from another origin.
+:81 {
+    root * /srv-harness
+    file_server
+    header Cache-Control "no-store"
 }

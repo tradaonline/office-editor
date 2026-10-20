@@ -214,4 +214,9 @@ export type PluginMode = "featured" | "all" | "none";
 
 export interface ServerOptions {
   getState?: () => { plugins: PluginMode };
+  /**
+   * XERP: receives the converted file instead of a browser download.
+   * Resolve true when it took the file; false falls back to the download.
+   */
+  onExport?: (data: Uint8Array, title: string) => Promise<boolean> | boolean;
 }

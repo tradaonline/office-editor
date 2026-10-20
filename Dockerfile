@@ -33,8 +33,12 @@ FROM node:22-alpine AS builder
 ARG DS_VERSION
 ARG HASH
 
+# XERP: origins allowed to embed /xerp and talk to it (comma-separated).
+ARG XERP_PARENT_ORIGINS=""
+
 # Expose the versioned asset path to Next.js at build time.
 ENV NEXT_PUBLIC_APP_ROOT=/v${DS_VERSION}-${HASH}
+ENV NEXT_PUBLIC_XERP_PARENT_ORIGINS=${XERP_PARENT_ORIGINS}
 
 WORKDIR /app
 
@@ -50,8 +54,9 @@ RUN pnpm install --frozen-lockfile
 # Copy the rest of the source code.
 COPY . .
 
-# Run the Next.js static export build.
-RUN pnpm build
+# Run the Next.js static export build. XERP: drop the upstream sample
+# templates (about 45 MB) — the embed never offers them.
+RUN pnpm build && rm -rf out/files
 
 # ============================================================
 # Stage 3: Caddy production server
@@ -73,7 +78,7 @@ COPY --from=builder /app/out ./
 COPY --from=documentserver /var/www/onlyoffice/documentserver/fonts         ./v${DS_VERSION}-${HASH}/fonts
 COPY --from=documentserver /var/www/onlyoffice/documentserver/sdkjs         ./v${DS_VERSION}-${HASH}/sdkjs
 COPY --from=documentserver /var/www/onlyoffice/documentserver/web-apps      ./v${DS_VERSION}-${HASH}/web-apps
-COPY --from=documentserver /var/www/onlyoffice/documentserver/sdkjs-plugins ./v${DS_VERSION}-${HASH}/sdkjs-plugins
+# XERP: no sdkjs-plugins — the embed runs with plugins off.
 
 # api.js is generated from a template at runtime in a full DocumentServer
 # deployment, but here we serve it statically — copy the template as-is.
@@ -82,5 +87,8 @@ RUN cp "./v${DS_VERSION}-${HASH}/web-apps/apps/api/documents/api.js.tpl" \
 
 # Copy Caddyfile.
 COPY Caddyfile /etc/caddy/Caddyfile
+
+# XERP P0: the test harness, served on :81 (never published in production).
+COPY xerp/harness /srv-harness
 
 EXPOSE 80 443

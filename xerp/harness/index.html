@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XERP Office — P0 harness</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; }
+  body { margin: 0; display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #8884; }
+  header b { margin-right: 8px; }
+  #frame { width: 100%; height: 100%; border: 0; }
+  #empty { display: grid; place-items: center; color: #888; }
+  footer { max-height: 28vh; overflow: auto; font: 12px ui-monospace, Menlo, monospace; padding: 6px 14px; border-top: 1px solid #8884; white-space: pre-wrap; }
+  .ok { color: #1d8a52; } .err { color: #c2412d; }
+</style>
+</head>
+<body>
+<!-- P0 only: plays the XERP parent page from another origin. Not shipped. -->
+<header>
+  <b>P0 harness</b>
+  <input type="file" id="file" accept=".docx,.xlsx,.pptx,.doc,.xls,.ppt,.odt,.ods,.odp,.pdf,.csv,.txt">
+  <label>Chế độ <select id="mode"><option value="edit">Sửa</option><option value="view">Chỉ xem</option></select></label>
+  <label><input type="checkbox" id="download"> Cho tải xuống</label>
+  <button id="open">Mở</button>
+  <button id="save" disabled>Lưu (gửi về XERP)</button>
+  <button id="reopen" disabled>Mở lại bản đã lưu</button>
+  <a id="dl" hidden>Tải bản đã lưu</a>
+  <span id="dirty"></span>
+</header>
+<main id="stage"><div id="empty">Chọn một tệp rồi bấm Mở.</div></main>
+<footer id="log"></footer>
+<script>
+  const params = new URLSearchParams(location.search);
+  const EDITOR = params.get("editor") || `${location.protocol}//${location.hostname}:8090`;
+  const EDITOR_ORIGIN = new URL(EDITOR).origin;
+  const $ = (id) => document.getElementById(id);
+  const log = (text, cls) => { const line = document.createElement("div"); if (cls) line.className = cls; line.textContent = `${new Date().toLocaleTimeString()}  ${text}`; $("log").prepend(line); };
+
+  let frame = null, t0 = 0, saveAt = 0, lastSaved = null, pendingFile = null;
+
+  function openFile(name, buffer) {
+    pendingFile = { name, buffer };
+    $("stage").innerHTML = "";
+    frame = document.createElement("iframe");
+    frame.id = "frame";
+    frame.src = EDITOR + "/xerp";
+    t0 = performance.now();
+    $("stage").appendChild(frame);
+    $("save").disabled = true;
+    log(`iframe → ${frame.src} (${(buffer.byteLength / 1024).toFixed(0)} KB, ${name})`);
+  }
+
+  window.addEventListener("message", (e) => {
+    if (!frame || e.source !== frame.contentWindow || e.origin !== EDITOR_ORIGIN) return;
+    const m = e.data || {};
+    const ms = Math.round(performance.now() - t0);
+    if (m.type === "xerp-office:ready" && pendingFile) {
+      log(`ready sau ${ms} ms (protocol v${m.version}), gửi tệp`);
+      const { name, buffer } = pendingFile;
+      pendingFile = null;
+      const copy = buffer.slice(0);
+      frame.contentWindow.postMessage({
+        type: "xerp-office:open",
+        file: { name, data: copy },
+        mode: $("mode").value,
+        canDownload: $("download").checked,
+        lang: "vi",
+        user: { id: "p0-tester", name: "Người thử P0" },
+      }, EDITOR_ORIGIN, [copy]);
+    } else if (m.type === "xerp-office:loaded") {
+      log(`loaded: tài liệu hiện sau ${ms} ms kể từ lúc tạo iframe (editor đo ${m.ms} ms)`, "ok");
+      $("save").disabled = $("mode").value !== "edit";
+    } else if (m.type === "xerp-office:dirty") {
+      $("dirty").textContent = m.dirty ? "● Có thay đổi chưa lưu" : "";
+    } else if (m.type === "xerp-office:saved") {
+      const kb = (m.data.byteLength / 1024).toFixed(0);
+      log(`saved: ${m.name}, ${kb} KB, mất ${Math.round(performance.now() - saveAt)} ms`, "ok");
+      lastSaved = { name: m.name, buffer: m.data };
+      $("reopen").disabled = false;
+      const a = $("dl");
+      if (a.href) URL.revokeObjectURL(a.href);
+      a.href = URL.createObjectURL(new Blob([m.data]));
+      a.download = m.name;
+      a.hidden = false;
+    } else if (m.type === "xerp-office:error") {
+      log(`error ${m.code}: ${m.message}${m.requestId ? ` (request ${m.requestId})` : ""}`, "err");
+    } else {
+      log(`? ${JSON.stringify(m).slice(0, 200)}`);
+    }
+  });
+
+  $("open").addEventListener("click", async () => {
+    const f = $("file").files[0];
+    if (!f) return log("Chưa chọn tệp", "err");
+    openFile(f.name, await f.arrayBuffer());
+  });
+  $("save").addEventListener("click", () => {
+    saveAt = performance.now();
+    frame.contentWindow.postMessage({ type: "xerp-office:save", requestId: String(Date.now()) }, EDITOR_ORIGIN);
+    log("save →");
+  });
+  $("reopen").addEventListener("click", () => lastSaved && openFile(lastSaved.name, lastSaved.buffer.slice(0)));
+  log(`editor origin: ${EDITOR_ORIGIN}`);
+</script>
+</body>
+</html>
