@@ -13,7 +13,7 @@
         # Pages and unversioned files revalidate; versioned assets override
         # this below. A cached asset keeps the headers it came with, so a
         # change to these headers needs a new HASH build arg (new asset path).
-        Cache-Control "no-cache"
+        ?Cache-Control "no-cache"
         X-Content-Type-Options "nosniff"
         -Server
     }

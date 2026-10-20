@@ -41,6 +41,7 @@ type OpenMessage = {
   type: "xerp-office:open";
   file: { name: string; data: ArrayBuffer };
   mode: "view" | "edit";
+  /** The editor's own Download menu. Saving works either way. Default true. */
   canDownload?: boolean;
   lang?: string;
   theme?: string;
@@ -118,7 +119,9 @@ export default function Page() {
           url: doc.url,
           permissions: {
             edit: editing,
-            download: !!msg.canDownload,
+            // Saving goes through the editor's download command, so it needs
+            // this even when the menu's Download is not offered (onExport).
+            download: true,
             print: false,
             chat: false,
             rename: false,
@@ -169,7 +172,7 @@ export default function Page() {
       if (typeof name !== "string" || !(data instanceof ArrayBuffer)) return fail("BAD_MESSAGE", "Thiếu tệp");
       if (data.byteLength > MAX_BYTES) return fail("FILE_TOO_LARGE", "Tệp quá lớn để mở trong trình soạn thảo");
       if (editorRef.current) return fail("ALREADY_OPEN", "Đã mở một tài liệu");
-      canDownload.current = !!msg.canDownload;
+      canDownload.current = msg.canDownload !== false;
       if (msg.user?.id) server.setUser({ id: String(msg.user.id), name: String(msg.user.name || "") });
       setStatus("Đang mở tài liệu…");
       await server.open(new File([data], name), { fileType: getFileExt(name) });
@@ -205,9 +208,11 @@ export default function Page() {
     window.addEventListener("message", onMessage);
     MockSocket.on("connect", server.handleConnect);
     MockSocket.on("disconnect", server.handleDisconnect);
-    // We do not know yet which allowed origin embeds us; a message to the
-    // others is dropped by the browser.
-    for (const origin of ALLOWED_PARENTS) {
+    // Tell the embedding page we are ready. Chrome names it (ancestorOrigins);
+    // elsewhere try each allowed origin, the browser drops the others.
+    const embedder = window.location.ancestorOrigins?.[0];
+    const readyTo = embedder ? ALLOWED_PARENTS.filter((o) => o === embedder) : ALLOWED_PARENTS;
+    for (const origin of readyTo) {
       window.parent.postMessage({ type: "xerp-office:ready", version: PROTOCOL_VERSION }, origin);
     }
 
