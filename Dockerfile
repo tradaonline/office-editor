@@ -59,6 +59,15 @@ COPY . .
 # templates (about 45 MB) — the embed never offers them.
 RUN pnpm build && rm -rf out/files
 
+# XERP: x2t ships brotli-encoded, and browsers accept brotli only over HTTPS.
+# Keep each file plain with .br and .gz siblings; Caddy picks per request.
+RUN apk add --no-cache brotli \
+ && for d in out/x2t out/x2t-1; do for f in "$d/x2t.js" "$d/x2t.wasm"; do \
+      if brotli -t "$f" 2>/dev/null; then mv "$f" "$f.br" && brotli -d "$f.br" -o "$f"; \
+      else brotli -q 11 -k -f "$f"; fi; \
+      gzip -k -9 -f "$f"; \
+    done; done
+
 # ============================================================
 # Stage 3: Caddy production server
 # ============================================================
