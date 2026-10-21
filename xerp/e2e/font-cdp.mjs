@@ -28,7 +28,7 @@ const getArg = (name, fallback) => {
 const HARNESS = getArg("harness", "http://192.168.88.99:8091/");
 const EDITOR = getArg("editor", "http://192.168.88.99:8090").replace(/\/$/, "");
 const OUT_DIR = resolve(getArg("out", join(__dirname, "out")));
-const SCRATCH_DIR = resolve(getArg("scratch", "/Users/jack/.hermes/cache/scratch"));
+const SCRATCH_DIR = resolve(getArg("scratch", join(tmpdir(), "xerp-office-e2e")));
 const TIMEOUT_MS = Number(getArg("timeout", "60000"));
 
 mkdirSync(OUT_DIR, { recursive: true });

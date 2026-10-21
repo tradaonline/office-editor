@@ -47,4 +47,4 @@ next-env.d.ts
 .env
 .edgeone/*
 .tef_dist/*
-  
+xerp/e2e/out/
