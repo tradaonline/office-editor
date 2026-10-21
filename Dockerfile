@@ -13,6 +13,12 @@ ARG DS_VERSION=9.3.1
 # the DocumentServer version itself.
 ARG HASH=1
 
+# Harness inclusion: 0 = production (no :81 site, no /srv-harness), 1 = include harness
+ARG XERP_HARNESS=0
+
+# Public source repository URL exposed to /xerp/about
+ARG XERP_SOURCE_URL="https://github.com/tradaonline/office-editor"
+
 # ============================================================
 # Stage 1: OnlyOffice DocumentServer assets source
 # ============================================================
@@ -35,10 +41,13 @@ ARG HASH
 
 # XERP: origins allowed to embed /xerp and talk to it (comma-separated).
 ARG XERP_PARENT_ORIGINS=""
+ARG XERP_SOURCE_URL="https://github.com/tradaonline/office-editor"
+ARG XERP_HARNESS=0
 
 # Expose the versioned asset path to Next.js at build time.
 ENV NEXT_PUBLIC_APP_ROOT=/v${DS_VERSION}-${HASH}
 ENV NEXT_PUBLIC_XERP_PARENT_ORIGINS=${XERP_PARENT_ORIGINS}
+ENV NEXT_PUBLIC_XERP_SOURCE_URL=${XERP_SOURCE_URL}
 
 WORKDIR /app
 
@@ -57,7 +66,9 @@ COPY . .
 
 # Run the Next.js static export build. XERP: drop the upstream sample
 # templates (about 45 MB) — the embed never offers them.
-RUN pnpm build && rm -rf out/files
+RUN pnpm build && rm -rf out/files \
+ && mkdir -p /harness \
+ && if [ "$XERP_HARNESS" = "1" ]; then cp -r xerp/harness/. /harness/; fi
 
 # XERP: x2t ships brotli-encoded, and browsers accept brotli only over HTTPS.
 # Keep each file plain with .br and .gz siblings; Caddy picks per request.
@@ -76,6 +87,7 @@ FROM caddy:2-alpine AS final
 # Re-declare args inside this stage.
 ARG DS_VERSION
 ARG HASH
+ARG XERP_HARNESS=0
 
 WORKDIR /srv
 
@@ -97,8 +109,14 @@ RUN cp "./v${DS_VERSION}-${HASH}/web-apps/apps/api/documents/api.js.tpl" \
 
 # Copy Caddyfile.
 COPY Caddyfile /etc/caddy/Caddyfile
+COPY Caddyfile.harness /tmp/Caddyfile.harness
+COPY --from=builder /harness /tmp/harness
 
-# XERP P0: the test harness, served on :81 (never published in production).
-COPY xerp/harness /srv-harness
+# XERP: harness on :81 conditional on build arg XERP_HARNESS=1 (default 0).
+RUN if [ "$XERP_HARNESS" = "1" ]; then \
+      cp -r /tmp/harness /srv-harness && \
+      cat /tmp/Caddyfile.harness >> /etc/caddy/Caddyfile; \
+    fi && \
+    rm -rf /tmp/harness /tmp/Caddyfile.harness
 
 EXPOSE 80 443

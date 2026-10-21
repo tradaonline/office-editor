@@ -80,3 +80,54 @@ export function getNewUrl(type: string) {
 export const APP_ROOT = process.env.NEXT_PUBLIC_APP_ROOT || "/v9.3.0.24-1";
 export const PRELOAD_HTML = "/web-apps/apps/api/documents/preload.html";
 export const API_JS = "/web-apps/apps/api/documents/api.js";
+
+export const EDITABLE_EXTENSIONS = new Set([
+  "docx",
+  "xlsx",
+  "pptx",
+  "doc",
+  "xls",
+  "ppt",
+  "odt",
+  "ods",
+  "odp",
+  "rtf",
+]);
+
+export function getTargetOoxmlType(ext: string): "docx" | "xlsx" | "pptx" {
+  const docType = getDocumentType(ext);
+  if (docType === "cell") return "xlsx";
+  if (docType === "slide") return "pptx";
+  return "docx";
+}
+
+export function getSuggestedName(originalName: string, targetExt: string): string {
+  const lastDot = originalName.lastIndexOf(".");
+  const base = lastDot > 0 ? originalName.slice(0, lastDot) : originalName;
+  return `${base}.${targetExt}`;
+}
+
+export function createSavedPayload(params: {
+  requestId: string;
+  name: string;
+  originalTitle: string;
+  data: ArrayBuffer;
+}) {
+  const origName = params.originalTitle || params.name;
+  const targetType = getTargetOoxmlType(getFileExt(origName));
+  const suggested = getSuggestedName(origName, targetType);
+  return {
+    type: "xerp-office:saved" as const,
+    requestId: params.requestId,
+    name: params.name,
+    title: origName,
+    fileType: targetType,
+    suggestedName: suggested,
+    data: params.data,
+  };
+}
+
+export function shouldBlockExport(hasPendingSave: boolean, canDownload: boolean): boolean {
+  if (hasPendingSave) return true;
+  return !canDownload;
+}

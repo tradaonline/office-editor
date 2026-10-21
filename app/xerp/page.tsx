@@ -9,18 +9,29 @@
  * no plugins, no macros, no analytics.
  *
  * Protocol (all messages are objects with `type`):
- *   editor → parent  xerp-office:ready    {version}
- *   parent → editor  xerp-office:open     {file: {name, data: ArrayBuffer}, mode: "view"|"edit",
- *                                          canDownload?, lang?, theme?, user?: {id, name}}
- *   editor → parent  xerp-office:loaded   {ms}
- *   editor → parent  xerp-office:dirty    {dirty}
- *   parent → editor  xerp-office:save     {requestId}
- *   editor → parent  xerp-office:saved    {requestId, name, data: ArrayBuffer}
- *   editor → parent  xerp-office:error    {requestId?, code, message}
+ *   editor → parent  xerp-office:ready          {version}
+ *   parent → editor  xerp-office:open           {file: {name, data: ArrayBuffer}, mode: "view"|"edit",
+ *                                                canDownload?, lang?, theme?, user?: {id, name}}
+ *   editor → parent  xerp-office:loaded         {ms}
+ *   editor → parent  xerp-office:dirty          {dirty}
+ *   parent → editor  xerp-office:save           {requestId}
+ *   editor → parent  xerp-office:saved          {requestId, name, title, fileType, suggestedName, data: ArrayBuffer}
+ *   editor → parent  xerp-office:close-request  {}
+ *   editor → parent  xerp-office:error          {requestId?, code, message}
  */
 
 import { useEffect, useRef, useState } from "react";
-import { API_JS, APP_ROOT, PRELOAD_HTML, getDocumentType, getFileExt } from "@/utils/editor/utils";
+import {
+  API_JS,
+  APP_ROOT,
+  EDITABLE_EXTENSIONS,
+  PRELOAD_HTML,
+  createSavedPayload,
+  getDocumentType,
+  getFileExt,
+  getTargetOoxmlType,
+  shouldBlockExport,
+} from "@/utils/editor/utils";
 import io, { MockSocket } from "@/utils/editor/socket";
 import { createFetchProxy } from "@/utils/editor/fetch";
 import { createXHRProxy } from "@/utils/editor/xhr";
@@ -48,14 +59,14 @@ type OpenMessage = {
   user?: { id: string; name: string };
 };
 
-const EDITABLE = new Set(["docx", "xlsx", "pptx"]);
-
 export default function Page() {
   const [status, setStatus] = useState("Đang chờ tài liệu…");
   const parentOrigin = useRef<string | null>(null);
   const editorRef = useRef<DocEditor | null>(null);
   const pendingSave = useRef<{ requestId: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const canDownload = useRef(false);
+  const isEditingRef = useRef(false);
+  const originalNameRef = useRef("");
 
   useEffect(() => {
     const embedded = window.parent && window.parent !== window;
@@ -78,10 +89,16 @@ export default function Page() {
         clearTimeout(pending.timer);
         pendingSave.current = null;
         const buf = data.slice().buffer;
-        post({ type: "xerp-office:saved", requestId: pending.requestId, name: title, data: buf }, [buf]);
+        const payload = createSavedPayload({
+          requestId: pending.requestId,
+          name: title,
+          originalTitle: originalNameRef.current,
+          data: buf,
+        });
+        post(payload, [buf]);
         return true;
       }
-      return !canDownload.current;
+      return shouldBlockExport(false, canDownload.current);
     };
 
     const server = new EditorServer({ getState: () => ({ plugins: "none" }), onExport });
@@ -109,7 +126,8 @@ export default function Page() {
 
     const createEditor = (msg: OpenMessage) => {
       const doc = server.getDocument();
-      const editing = msg.mode === "edit" && EDITABLE.has(doc.fileType);
+      const editing = msg.mode === "edit" && EDITABLE_EXTENSIONS.has(doc.fileType.toLowerCase());
+      isEditingRef.current = editing;
       server.setClient({ buildVersion: window.DocsAPI!.DocEditor.version() });
       editorRef.current = new window.DocsAPI!.DocEditor("placeholder", {
         document: {
@@ -127,6 +145,10 @@ export default function Page() {
             rename: false,
             protect: editing,
             review: false,
+            comment: false,
+            fillForms: false,
+            modifyFilter: editing,
+            copy: true,
           },
         },
         documentType: getDocumentType(doc.fileType),
@@ -136,10 +158,40 @@ export default function Page() {
           coEditing: { mode: "fast", change: false },
           user: server.getUser(),
           customization: {
+            about: true,
+            feedback: { visible: false },
+            help: false,
             uiTheme: msg.theme || "theme-white",
             macros: false,
+            macrosMode: "disable",
             plugins: false,
-            features: { spellcheck: { change: false } },
+            suggestFeature: false,
+            mentionShare: false,
+            comments: false,
+            review: {
+              hideReviewDisplay: true,
+              showReviewChanges: false,
+              trackChanges: false,
+            },
+            close: {
+              visible: true,
+              text: "Đóng",
+            },
+            features: {
+              spellcheck: { change: false },
+              featuresTips: false,
+            },
+            integrationMode: "embed",
+            layout: {
+              header: { editMode: false, users: false },
+              toolbar: {
+                plugins: false,
+                collaboration: false,
+                file: {
+                  close: true,
+                },
+              },
+            },
           },
         },
         events: {
@@ -149,6 +201,7 @@ export default function Page() {
             post({ type: "xerp-office:loaded", ms: Math.round(performance.now() - startedAt) });
           },
           onDocumentStateChange: (e: { data: boolean }) => post({ type: "xerp-office:dirty", dirty: !!e.data }),
+          onRequestClose: () => post({ type: "xerp-office:close-request" }),
           onError: (e: { data?: { errorCode?: number; errorDescription?: string } }) =>
             fail("EDITOR_ERROR", e?.data?.errorDescription || String(e?.data?.errorCode ?? "")),
         },
@@ -173,6 +226,7 @@ export default function Page() {
       if (data.byteLength > MAX_BYTES) return fail("FILE_TOO_LARGE", "Tệp quá lớn để mở trong trình soạn thảo");
       if (editorRef.current) return fail("ALREADY_OPEN", "Đã mở một tài liệu");
       canDownload.current = msg.canDownload !== false;
+      originalNameRef.current = name;
       if (msg.user?.id) server.setUser({ id: String(msg.user.id), name: String(msg.user.name || "") });
       setStatus("Đang mở tài liệu…");
       await server.open(new File([data], name), { fileType: getFileExt(name) });
@@ -182,13 +236,15 @@ export default function Page() {
     const save = (requestId: string) => {
       const editor = editorRef.current;
       if (!editor) return fail("NOT_OPEN", "Chưa mở tài liệu", requestId);
+      if (!isEditingRef.current) return fail("READ_ONLY", "Tài liệu ở chế độ chỉ xem", requestId);
       if (pendingSave.current) return fail("SAVE_IN_PROGRESS", "Đang lưu", requestId);
       const timer = setTimeout(() => {
         pendingSave.current = null;
         fail("SAVE_TIMEOUT", "Lưu quá lâu, thử lại", requestId);
       }, SAVE_TIMEOUT_MS);
       pendingSave.current = { requestId, timer };
-      editor.downloadAs(server.getDocument().fileType);
+      const targetType = getTargetOoxmlType(server.getDocument().fileType);
+      editor.downloadAs(targetType);
     };
 
     const onMessage = (event: MessageEvent) => {
@@ -230,6 +286,15 @@ export default function Page() {
       <div id="placeholder">
         <iframe className="w-0 h-0 hidden" src={APP_ROOT + PRELOAD_HTML}></iframe>
       </div>
+      <a
+        href="/xerp/about"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-1 right-1 z-50 text-[11px] text-gray-400 hover:text-gray-700 bg-white/80 px-1.5 py-0.5 rounded shadow-sm opacity-70 hover:opacity-100"
+        title="Giới thiệu & Giấy phép"
+      >
+        Giới thiệu
+      </a>
     </div>
   );
 }

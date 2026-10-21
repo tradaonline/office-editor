@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>XERP Office — P0 harness</title>
+<title>XERP Office — Harness</title>
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; }
   body { margin: 0; display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
@@ -32,7 +32,7 @@
 <footer id="log"></footer>
 <script>
   const params = new URLSearchParams(location.search);
-  const EDITOR = params.get("editor") || `${location.protocol}//${location.hostname}:8090`;
+  const EDITOR = (params.get("editor") || `${location.protocol}//${location.hostname}:8090`).replace(/\/$/, "");
   const EDITOR_ORIGIN = new URL(EDITOR).origin;
   const $ = (id) => document.getElementById(id);
   const log = (text, cls) => { const line = document.createElement("div"); if (cls) line.className = cls; line.textContent = `${new Date().toLocaleTimeString()}  ${text}`; $("log").prepend(line); };
@@ -54,6 +54,8 @@
   window.addEventListener("message", (e) => {
     if (!frame || e.source !== frame.contentWindow || e.origin !== EDITOR_ORIGIN) return;
     const m = e.data || {};
+    window.__harnessMessages = window.__harnessMessages || [];
+    window.__harnessMessages.push(m);
     const ms = Math.round(performance.now() - t0);
     if (m.type === "xerp-office:ready" && pendingFile) {
       log(`ready sau ${ms} ms (protocol v${m.version}), gửi tệp`);
@@ -75,20 +77,61 @@
       $("dirty").textContent = m.dirty ? "● Có thay đổi chưa lưu" : "";
     } else if (m.type === "xerp-office:saved") {
       const kb = (m.data.byteLength / 1024).toFixed(0);
-      log(`saved: ${m.name}, ${kb} KB, mất ${Math.round(performance.now() - saveAt)} ms`, "ok");
-      lastSaved = { name: m.name, buffer: m.data };
+      const extInfo = (m.fileType || m.suggestedName) ? ` (xuất ${m.fileType || ""}: ${m.suggestedName || m.name})` : "";
+      log(`saved: ${m.name}${extInfo}, ${kb} KB, mất ${Math.round(performance.now() - saveAt)} ms`, "ok");
+      lastSaved = { name: m.suggestedName || m.name, buffer: m.data, title: m.title, fileType: m.fileType, suggestedName: m.suggestedName };
       $("reopen").disabled = false;
       const a = $("dl");
       if (a.href) URL.revokeObjectURL(a.href);
       a.href = URL.createObjectURL(new Blob([m.data]));
-      a.download = m.name;
+      a.download = m.suggestedName || m.name;
       a.hidden = false;
+    } else if (m.type === "xerp-office:close-request") {
+      log("close-request: editor yêu cầu đóng", "ok");
     } else if (m.type === "xerp-office:error") {
       log(`error ${m.code}: ${m.message}${m.requestId ? ` (request ${m.requestId})` : ""}`, "err");
     } else {
       log(`? ${JSON.stringify(m).slice(0, 200)}`);
     }
   });
+
+  window.__harness = {
+    openBuffer: (name, buffer, mode = "edit", canDownload = true) => {
+      $("mode").value = mode;
+      $("download").checked = canDownload;
+      openFile(name, buffer);
+    },
+    save: () => $("save").click(),
+    reopen: () => $("reopen").click(),
+    reset: () => {
+      $("stage").innerHTML = '<div id="empty">Chọn một tệp rồi bấm Mở.</div>';
+      frame = null;
+      lastSaved = null;
+      pendingFile = null;
+      $("save").disabled = true;
+      $("reopen").disabled = true;
+      $("dirty").textContent = "";
+      window.__harnessMessages = [];
+    },
+    getLastSaved: () => lastSaved ? {
+      name: lastSaved.name,
+      byteLength: lastSaved.buffer ? lastSaved.buffer.byteLength : 0,
+      title: lastSaved.title,
+      fileType: lastSaved.fileType,
+      suggestedName: lastSaved.suggestedName,
+    } : null,
+    getLastSavedBase64: () => {
+      if (!lastSaved || !lastSaved.buffer) return null;
+      const bytes = new Uint8Array(lastSaved.buffer);
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    },
+    getMessages: () => (window.__harnessMessages || []),
+  };
 
   $("open").addEventListener("click", async () => {
     const f = $("file").files[0];

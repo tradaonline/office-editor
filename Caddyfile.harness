@@ -1,0 +1,6 @@
+# XERP test harness playing the XERP parent page from another origin.
+:81 {
+    root * /srv-harness
+    file_server
+    header Cache-Control "no-store"
+}
