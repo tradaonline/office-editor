@@ -410,7 +410,8 @@ export class EditorServer {
         });
         break;
       case "getLock":
-        // ponytail: cell sdk expects lock user to match this.YLb (uid + indexUser); echo exact identity to prevent remote-lock branch TypeError
+        // The cell SDK compares the lock owner with its own id + indexUser; any other
+        // value reads as someone else's lock and throws.
         const lockUser = `${user?.id || ""}${this.indexUser}`;
         send({
           type: "getLock",
@@ -556,7 +557,7 @@ export class EditorServer {
     }
 
     // The editor asks for these at the site root; they live under APP_ROOT.
-    // ponytail: exact table maps tested ONLYOFFICE v9 paths; add dynamic routing only if upstream structure changes.
+    // Exact paths checked against ONLYOFFICE 9.3; revisit when DS_VERSION changes.
     const staticJsonPath = STATIC_JSON_ROUTES[u.pathname];
     if (staticJsonPath) {
       const base = u.origin && u.origin !== "null" ? u.origin : "http://localhost";
