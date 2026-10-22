@@ -31,6 +31,7 @@ import {
   getFileExt,
   getTargetOoxmlType,
   shouldBlockExport,
+  shouldHideLeftMenu,
 } from "@/utils/editor/utils";
 import io, { MockSocket } from "@/utils/editor/socket";
 import { createFetchProxy } from "@/utils/editor/fetch";
@@ -104,6 +105,25 @@ export default function Page() {
     const server = new EditorServer({ getState: () => ({ plugins: "none" }), onExport });
     const startedAt = performance.now();
 
+    const hideLeftMenuIfMobileView = () => {
+      if (typeof window === "undefined") return;
+      if (!shouldHideLeftMenu(isEditingRef.current, window.innerWidth, navigator.userAgent)) return;
+      const iframe = document.querySelector<HTMLIFrameElement>('iframe[name="frameEditor"]');
+      const win = iframe?.contentWindow as any;
+      if (!win) return;
+      try {
+        const app = win.DE || win.SSE || win.PE || win.PDFE;
+        const ctrl = app?.getController?.("LeftMenu");
+        const lmView = ctrl?.getView?.("LeftMenu") || ctrl?.leftMenu;
+        if (lmView && typeof lmView.hide === "function") {
+          lmView.hide();
+        } else if (typeof ctrl?.onLeftMenuHide === "function") {
+          ctrl.onLeftMenuHide(null, false);
+        }
+        win.Common?.NotificationCenter?.trigger?.("layout:changed", "main");
+      } catch {}
+    };
+
     const patchFrame = () => {
       const iframe = document.querySelector<HTMLIFrameElement>('iframe[name="frameEditor"]');
       const win = iframe?.contentWindow as (typeof window) | null;
@@ -122,6 +142,13 @@ export default function Page() {
           return new _Worker(u.href.replace(u.origin, location.origin), options);
         },
       });
+      try {
+        win.localStorage?.removeItem("de-hidden-leftmenu");
+        win.localStorage?.removeItem("sse-hidden-leftmenu");
+        win.localStorage?.removeItem("pe-hidden-leftmenu");
+        win.localStorage?.removeItem("pdfe-hidden-leftmenu");
+      } catch {}
+      hideLeftMenuIfMobileView();
     };
 
     const createEditor = (msg: OpenMessage) => {
@@ -197,6 +224,7 @@ export default function Page() {
         events: {
           onAppReady: () => patchFrame(),
           onDocumentReady: () => {
+            hideLeftMenuIfMobileView();
             setStatus("");
             post({ type: "xerp-office:loaded", ms: Math.round(performance.now() - startedAt) });
           },
@@ -261,6 +289,8 @@ export default function Page() {
       }
     };
 
+    const onResize = () => hideLeftMenuIfMobileView();
+    window.addEventListener("resize", onResize);
     window.addEventListener("message", onMessage);
     MockSocket.on("connect", server.handleConnect);
     MockSocket.on("disconnect", server.handleDisconnect);
@@ -273,6 +303,7 @@ export default function Page() {
     }
 
     return () => {
+      window.removeEventListener("resize", onResize);
       window.removeEventListener("message", onMessage);
       MockSocket.off("connect", server.handleConnect);
       MockSocket.off("disconnect", server.handleDisconnect);

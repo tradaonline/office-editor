@@ -131,3 +131,13 @@ export function shouldBlockExport(hasPendingSave: boolean, canDownload: boolean)
   if (hasPendingSave) return true;
   return !canDownload;
 }
+
+export function isMobileViewport(width?: number, ua?: string): boolean {
+  if (typeof width === "number" && width < 768) return true;
+  if (typeof ua === "string" && /Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+  return false;
+}
+
+export function shouldHideLeftMenu(editing: boolean, width?: number, ua?: string): boolean {
+  return !editing && isMobileViewport(width, ua);
+}
