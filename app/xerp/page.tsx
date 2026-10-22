@@ -312,9 +312,23 @@ export default function Page() {
   }, []);
 
   return (
-    <div className="w-screen h-screen">
+    <div className="w-full h-full overflow-hidden relative">
+      <style>{`
+        html, body {
+          width: 100% !important;
+          height: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+        }
+        iframe {
+          display: block !important;
+          border: 0 !important;
+          vertical-align: top !important;
+        }
+      `}</style>
       {status && <div className="p-6 text-sm text-gray-600">{status}</div>}
-      <div id="placeholder">
+      <div id="placeholder" className="w-full h-full overflow-hidden">
         <iframe className="w-0 h-0 hidden" src={APP_ROOT + PRELOAD_HTML}></iframe>
       </div>
       <a
